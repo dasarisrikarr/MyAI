@@ -4,9 +4,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional
 import google.generativeai as genai
-import json, os, httpx, secrets, smtplib, bcrypt
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import json, os, httpx, secrets, bcrypt
+
+
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 
@@ -134,8 +134,7 @@ def db_save_chats(email: str, chats: list):
         })
 
 # ── Email ──
-GMAIL_USER = os.environ.get("GMAIL_USER", "")
-GMAIL_PASS = os.environ.get("GMAIL_PASS", "")
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 TAVILY_KEY = os.environ.get("TAVILY_API_KEY", "")
 otps_db = {}
 
@@ -146,40 +145,35 @@ def hash_pw(p): return bcrypt.hashpw(p.encode(), bcrypt.gensalt()).decode()
 def check_pw(p, h): return bcrypt.checkpw(p.encode(), h.encode())
 
 def send_otp_email(to_email: str, otp: str, name: str = "User"):
-    if not GMAIL_USER or not GMAIL_PASS:
+    if not RESEND_API_KEY:
         return False
     try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = "MyAI — Your OTP Code 🔐"
-        msg["From"]    = f"MyAI <{GMAIL_USER}>"
-        msg["To"]      = to_email
-        html = f"""
-<!DOCTYPE html><html><body style="margin:0;padding:0;background:#0a0a0f;font-family:'Segoe UI',sans-serif;">
+        html = f"""<!DOCTYPE html><html><body style="margin:0;padding:0;background:#0a0a0f;font-family:Segoe UI,sans-serif;">
   <div style="max-width:480px;margin:40px auto;background:#13131a;border-radius:20px;overflow:hidden;border:1px solid rgba(124,110,247,0.3);">
     <div style="background:linear-gradient(135deg,#7c6ef7,#6d5ce7);padding:30px;text-align:center;">
-      <h1 style="color:white;margin:0;font-size:24px;">✦ MyAI</h1>
+      <h1 style="color:white;margin:0;font-size:24px;">MyAI</h1>
       <p style="color:rgba(255,255,255,0.8);margin:8px 0 0;font-size:14px;">Your Personal AI Assistant</p>
     </div>
     <div style="padding:32px;">
-      <p style="color:#e8e8f0;font-size:16px;">Hello, <strong>{name}</strong>! 👋</p>
+      <p style="color:#e8e8f0;font-size:16px;">Hello, <strong>{name}</strong>!</p>
       <p style="color:#7a7a90;font-size:14px;margin-bottom:24px;">Use the OTP below to reset your password:</p>
       <div style="background:#1c1c26;border:2px solid #7c6ef7;border-radius:16px;padding:28px;text-align:center;margin-bottom:24px;">
-        <p style="color:#7a7a90;font-size:12px;margin:0 0 12px;text-transform:uppercase;letter-spacing:2px;">Your OTP Code</p>
+        <p style="color:#7a7a90;font-size:12px;margin:0 0 12px;">YOUR OTP CODE</p>
         <div style="font-size:42px;font-weight:700;letter-spacing:14px;color:#a89cf7;font-family:monospace;">{otp}</div>
       </div>
-      <p style="color:#ef4444;font-size:13px;">⏰ Expires in 10 minutes</p>
-      <p style="color:#7a7a90;font-size:13px;margin-top:12px;">If you didn't request this, ignore this email.</p>
-    </div>
-    <div style="background:#0a0a0f;padding:16px;text-align:center;">
-      <p style="color:#4a4a60;font-size:12px;margin:0;">© 2025 MyAI</p>
+      <p style="color:#ef4444;font-size:13px;">Expires in 10 minutes</p>
     </div>
   </div>
 </body></html>"""
-        msg.attach(MIMEText(html, "html"))
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(GMAIL_USER, GMAIL_PASS)
-            server.sendmail(GMAIL_USER, to_email, msg.as_string())
-        return True
+        resp = httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+            json={"from": "MyAI <onboarding@resend.dev>", "to": [to_email],
+                  "subject": "MyAI - Your OTP Code", "html": html},
+            timeout=10
+        )
+        print(f"Resend response: {resp.status_code} {resp.text}")
+        return resp.status_code == 200
     except Exception as e:
         print(f"Email error: {e}")
         return False
